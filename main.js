@@ -1,14 +1,15 @@
 let windowSize = 5;
 let totalPackets = 10;
-let timeout = 10;
+let timeout = 5;
 
 let simulationPaused = false;
 
-let packetSpeed = 20;
-let packetSendQueue = {"next" : 0, "prev" : false, "priority" : []};
+let packetSpeed = 10;
+let packetSendQueue = { next: 0, prev: false, priority: [] };
 
 let states = {};
 let oldStates = {};
+let killed = {};
 
 let anims = {};
 
@@ -54,7 +55,7 @@ function initSimulation(total) {
 function changeColor(id, state) {
   let ele = document.getElementById(id);
 
-  if(!id.includes("p")) return;
+  if (!id.includes("p")) return;
   console.log(id);
   if (!ele) console.log(id + " : packet does not exist");
 
@@ -74,15 +75,14 @@ function changeColor(id, state) {
     case "ackrec":
       ele.style.background = "blue";
       break;
-    case "idle" : 
+    case "idle":
       ele.style.background = "white";
       break;
-    case "paused" : 
-
-    if(oldStates[id] == "sending")  ele.style.background = "skyblue";
-    if(oldStates[id] == "ackrec")  ele.style.background = "blue";
-    if(oldStates[id] == "received")  ele.style.background = "red";
-    if(oldStates[id] == "ack")  ele.style.background = "yellow";
+    case "paused":
+      if (oldStates[id] == "sending") ele.style.background = "skyblue";
+      if (oldStates[id] == "ackrec") ele.style.background = "blue";
+      if (oldStates[id] == "received") ele.style.background = "red";
+      if (oldStates[id] == "ack") ele.style.background = "yellow";
       break;
     default:
       ele.style.background = "white";
@@ -131,10 +131,13 @@ function clearAll() {
 </div>`;
 }
 
-function updateWindow(packet,rec) {
+function updateWindow(packet, rec) {
   console.log(packet);
-  if(states["ps-" + packet] == "ackrec") return console.log("I dont look back once im done with it");
-  let swin = rec ? document.getElementById("srec") : document.getElementById("swindow");
+  if (states["ps-" + packet] == "ackrec")
+    return console.log("I dont look back once im done with it");
+  let swin = rec
+    ? document.getElementById("srec")
+    : document.getElementById("swindow");
   let from = parseInt(swin.style.top);
   console.log(swin.style.top);
 
@@ -142,7 +145,7 @@ function updateWindow(packet,rec) {
 
   windowCurrentPosition = packet;
 
-  console.log(from +" - " +to);
+  console.log(from + " - " + to);
   anims[rec ? "srec" : "swindow"] = setInterval(
     () => {
       if (from == to) return clearInterval(anims[rec ? "srec" : "swindow"]);
@@ -174,9 +177,8 @@ function idToNum(str) {
   return parseInt(joinArray);
 }
 
-
-function numToId(num,rec) {
-  if(rec) return "pr-" + num;
+function numToId(num, rec) {
+  if (rec) return "pr-" + num;
   return "ps-" + num;
 }
 // UTILSS END
@@ -184,20 +186,22 @@ function numToId(num,rec) {
 // PACKET RELATED FUNCTIONS
 
 function packetSend(id, opp) {
-if(simulationPaused) return;
-  if(!id) {
-    id = numToId(packetSendQueue.next)
+  if (simulationPaused) return;
+  if (!id) {
+    id = numToId(packetSendQueue.next);
   }
 
-  if(idToNum(id) > windowCurrentPosition + 4) return console.log("Cannot send that packet");
-  if(states[id] && states[id] != "paused") return console.log("Packet is already in sending state")
+  if (idToNum(id) > windowCurrentPosition + 4)
+    return console.log("Cannot send that packet");
+  if (states[id] && states[id] != "paused" && states[id] != "killed")
+    return console.log("Packet is already in sending state");
   let ele = ELE(id);
   ele.style.position = "relative";
 
   updateState(id, "sending");
-  if(packetSendQueue.prev == idToNum(id) - 1 || !packetSendQueue.prev) {
-  packetSendQueue.prev = packetSendQueue.next;
-  packetSendQueue.next += 1;
+  if (packetSendQueue.prev == idToNum(id) - 1 || !packetSendQueue.prev) {
+    packetSendQueue.prev = packetSendQueue.next;
+    packetSendQueue.next += 1;
   }
   let px = parseInt(ele.style.left) ? parseInt(ele.style.left) : 0;
   anims[id] = setInterval(
@@ -208,7 +212,7 @@ if(simulationPaused) return;
 
       if (Math.round(opp.left) == Math.round(our.left)) {
         updateState(id.replace("s", "r"), "received");
-        updateWindow(idToNum(id) + 1,true);
+        updateWindow(idToNum(id) + 1, true);
         updateState(id, "ack");
         clearInterval(anims[id]);
         packetResend(id);
@@ -260,28 +264,45 @@ function packetSelect(id) {
 }
 
 function packetStop(id) {
-  updateState(id,"paused")
+  updateState(id, "paused");
   clearInterval(anims[id]);
 }
 
 function packetResume(id) {
-  console.log(id + oldStates[id])
-  if (states[id] == "paused" && oldStates[id] == "sending" ) packetSend(id);
+  console.log(id + oldStates[id]);
+  if (states[id] == "paused" && oldStates[id] == "sending") packetSend(id);
   if (states[id] == "paused" && oldStates[id] == "ack") packetResend(id);
-  if(states[id] == "paused" && oldStates[id] == "ackrec") updateState(id,"ackrec") 
+  if (states[id] == "paused" && oldStates[id] == "ackrec")
+    updateState(id, "ackrec");
 }
 
-
 function packetKill(id) {
-
+  id = selectedPacket;
+  updateState(id, "killed");
+  if (!id) return alert("No packet selected");
   let ele = ELE(id);
+  clearInterval(anims[id]);
+  killed[id] = true;
   ele.style.left = "0px";
+  setTimeout(packetSend, timeout * 1000, id);
+  resumeSimulation();
+}
+
+function packetAdd() {
+  document.getElementById(
+    "sender"
+  ).innerHTML += ` <div class="packet" onclick="packetSelect('ps-${totalPackets}')" id="ps-${totalPackets}"><span class="num">${totalPackets}</span></div>`;
+
+document.getElementById(
+  "receiver"
+).innerHTML += ` <div class="packet" onclick="packetSelect('pr-${totalPackets}')" id="pr-${totalPackets}"><span class="num">${totalPackets}</span></div>`;
+totalPackets += 1;
 }
 
 // PACKET RELATED FUNCTIONS END
 
 function pauseSimulation() {
-  if(simulationPaused) return;
+  if (simulationPaused) return;
   document.getElementById("pauseID").style.display = "none";
   document.getElementById("resumeID").style.display = "block";
 
@@ -295,10 +316,9 @@ function pauseSimulation() {
 }
 
 function resumeSimulation() {
-  if(!simulationPaused) return;
+  if (!simulationPaused) return;
   document.getElementById("resumeID").style.display = "none";
   document.getElementById("pauseID").style.display = "block";
-
 
   simulationPaused = false;
   anims.paused.forEach((anim) => {
